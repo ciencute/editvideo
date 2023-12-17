@@ -1,14 +1,23 @@
 import 'dart:io';
 
 import 'package:ffmpeg_kit_flutter/ffmpeg_kit.dart';
+import 'package:ffmpeg_kit_flutter/ffmpeg_kit_config.dart';
 import 'package:ffmpeg_kit_flutter/ffmpeg_session.dart';
 import 'package:ffmpeg_kit_flutter/ffprobe_kit.dart';
+import 'package:ffmpeg_kit_flutter/log.dart';
 import 'package:ffmpeg_kit_flutter/return_code.dart';
+import 'package:ffmpeg_kit_flutter/session.dart';
+import 'package:ffmpeg_kit_flutter/statistics.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:get/get.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:video_editor/video_editor.dart';
 import 'package:flutter_video_info/flutter_video_info.dart';
 import 'package:lottie/lottie.dart';
 import 'package:path_provider/path_provider.dart';
+
+import 'video_editor_screen.dart';
 
 enum VideoStatus { Default, Doing, Finish }
 
@@ -69,113 +78,17 @@ class _EditVideoScreenState extends State<EditVideoScreen> {
   }
 
   void pickVideo() async {
-    FilePickerResult? result = await FilePicker.platform.pickFiles(
-      type: FileType.video,
-      allowCompression: true,
-    );
+    final ImagePicker _picker = ImagePicker();
+    final XFile? file = await _picker.pickVideo(source: ImageSource.gallery);
 
-    if (result != null) {
-      String? videoPath = result.files.single.path;
-      if (videoPath != null) {
-        status = VideoStatus.Doing;
-        await cutVideoIntoSegments(videoPath).then((value) {
-          if (value.isNotEmpty) {
-            setState(() {
-              status = VideoStatus.Finish;
-            });
-          }
-        });
-      }
-    } else {}
-  }
-
-  Future<List<String>> cutVideoIntoSegments(String videoPath) async {
-    Directory directory = await getApplicationDocumentsDirectory();
-    String newPath = '${directory.path}/video_cut';
-
-    if (!(await Directory(newPath).exists())) {
-      await Directory(newPath).create(recursive: true);
-      print('Đã tạo thư mục video_cut.');
-    } else {
-      print('Thư mục video_cut đã tồn tại.');
+    if (mounted && file != null) {
+      Navigator.push(
+        context,
+        MaterialPageRoute<void>(
+          builder: (BuildContext context) => VideoEditor(file: File(file.path)),
+        ),
+      );
     }
-
-    final mediaInformation = await FFprobeKit.getMediaInformation(videoPath);
-    final durationInSeconds = await mediaInformation.getDuration();
-    final segmentDurationInSeconds = 60;
-    final List<String> cutVideoPaths = [];
-
-    final numberOfSegments = (durationInSeconds / segmentDurationInSeconds).ceil();
-    final remainingDuration = durationInSeconds % segmentDurationInSeconds;
-
-    for (var i = 0; i < numberOfSegments; i++) {
-      final startTimeInSeconds = i * segmentDurationInSeconds;
-      var endTimeInSeconds = (i + 1) * segmentDurationInSeconds;
-
-      if (endTimeInSeconds > durationInSeconds) {
-        endTimeInSeconds = durationInSeconds;
-      }
-
-      final outputFileName = '$newPath/segment_$i.mp4';
-
-      if (await File(outputFileName).exists()) {
-        await File(outputFileName).delete();
-        print('Đã xóa file cũ thành công');
-      }
-
-      final command = [
-        '-i',
-        videoPath,
-        '-ss',
-        startTimeInSeconds.toString(),
-        '-t',
-        (endTimeInSeconds - startTimeInSeconds).toString(),
-        '-c',
-        'copy',
-        outputFileName,
-      ];
-
-      final session = await FFmpegKit.executeAsync(command.join(' '));
-      final returnCode = await session.getReturnCode();
-      if (returnCode == ReturnCode.success) {
-        cutVideoPaths.add(outputFileName);
-        print('Đã cắt đoạn $i thành công');
-      } else {
-        print('Lỗi khi cắt đoạn $i');
-      }
-    }
-
-    if (remainingDuration > 0 && remainingDuration < segmentDurationInSeconds) {
-      final outputFileName = '$newPath/last_segment.mp4';
-
-      if (await File(outputFileName).exists()) {
-        await File(outputFileName).delete();
-        print('Đã xóa file cũ thành công');
-      }
-
-      final command = [
-        '-i',
-        videoPath,
-        '-ss',
-        (durationInSeconds - remainingDuration).toString(),
-        '-t',
-        remainingDuration.toString(),
-        '-c',
-        'copy',
-        outputFileName,
-      ];
-
-      final session = await FFmpegKit.executeAsync(command.join(' '));
-      final returnCode = await session.getReturnCode();
-      if (returnCode == ReturnCode.success) {
-        cutVideoPaths.add(outputFileName);
-        print('Đã cắt video cuối cùng thành công');
-      } else {
-        print('Lỗi khi cắt video cuối cùng');
-      }
-    }
-
-    return cutVideoPaths;
   }
 
 
